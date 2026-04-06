@@ -213,13 +213,34 @@
       }
     }
 
-    var base = price - down;
+    var base = price;
     var markupRaw = base * (rate / 100);
     var markupAmount = roundTo50(markupRaw);
     var financed = base + markupAmount;
-    var totalPay = roundTo50(down + financed);
+    var totalPay = roundTo50(financed);
+    var minDownForCalc = hasDown ? getMinDown(price, rate) : NaN;
+    var specialDownBoost =
+      hasDown &&
+      isFinite(minDownForCalc) &&
+      down >= minDownForCalc + 5000;
+
+    /** Взнос ≥ мин + 5000 ₽: наценка и % как по таблице без взноса (RATES_WITHOUT). */
+    var rateForMarkup = rate;
+    if (specialDownBoost) {
+      var rateWithout = RATES_WITHOUT[months];
+      if (rateWithout == null) rateWithout = 0;
+      rateForMarkup = rateWithout;
+      markupAmount = roundTo50(price * (rateWithout / 100));
+      totalPay = roundTo50(price + markupAmount);
+      financed = price + markupAmount;
+    }
+
     var monthly =
-      months > 0 ? roundTo50(financed / months) : 0;
+      months > 0
+        ? specialDownBoost
+          ? roundTo50((totalPay - down) / months)
+          : roundTo50(financed / months)
+        : 0;
 
     var downPctOfTotal = totalPay > 0 ? (down / totalPay) * 100 : 0;
     var markupPctOfPrice = price > 0 ? (markupAmount / price) * 100 : 0;
@@ -227,16 +248,13 @@
     if (hasDown) {
       rowDown.classList.remove("is-hidden");
       outDown.textContent =
-        formatMoney(down) +
-        " (" +
-        formatPct(downPctOfTotal) +
-        " от итога к оплате)";
+        formatMoney(down);
     } else {
       rowDown.classList.add("is-hidden");
     }
 
     outMarkup.textContent =
-      formatMoney(markupAmount) + " (" + formatPct(markupPctOfPrice) + " от стоимости)";
+      formatMoney(markupAmount);
     outTotal.textContent = formatMoney(totalPay);
     outMonthly.textContent = formatMoney(monthly);
 
@@ -245,7 +263,7 @@
       hasDown: hasDown,
       down: down,
       months: months,
-      rate: rate,
+      rate: rateForMarkup,
       markupAmount: markupAmount,
       totalPay: totalPay,
       monthly: monthly,
@@ -255,40 +273,27 @@
   }
 
   function updateWhatsApp(data) {
-    var intro =
-      "Здравствуйте, хочу оформить у вас рассрочку";
     if (!data) {
       waLink.href =
-        "https://wa.me/79288884993?text=" +
+        "https://wa.me/?text=" +
         encodeURIComponent(intro + "\n\n(заполните форму для расчёта)");
       return;
     }
 
     var lines = [
-      intro,
-      "",
       "Стоимость товара: " + formatMoney(data.price),
       "Взнос: " + (data.hasDown ? "да" : "нет"),
       "Срок: " + data.months + " мес.",
-      "Процент наценки: " + data.rate + " %"
     ];
 
     if (data.hasDown) {
       lines.push(
         "Первый взнос: " +
-          formatMoney(data.down) +
-          " (" +
-          formatPct(data.downPctOfTotal) +
-          " от итога к оплате)"
+          formatMoney(data.down)
       );
     }
 
     lines.push(
-      "Наценка: " +
-      formatMoney(data.markupAmount) +
-      " (" +
-      formatPct(data.markupPctOfPrice) +
-      " от стоимости)",
       "Итого к оплате: " + formatMoney(data.totalPay),
       "Ежемесячный платёж: " + formatMoney(data.monthly)
     );
