@@ -229,8 +229,8 @@
     if (specialDownBoost) {
       var rateWithout = RATES_WITHOUT[months];
       if (rateWithout == null) rateWithout = 0;
-      rateForMarkup = rateWithout;
-      markupAmount = roundTo50(price * (rateWithout / 100));
+      rateForMarkup = rateWithout + 1;
+      markupAmount = roundTo50((price - down) * (rateWithout / 100));
       totalPay = roundTo50(price + markupAmount);
       financed = price + markupAmount;
     }
