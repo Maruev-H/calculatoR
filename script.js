@@ -299,7 +299,7 @@
     );
 
     waLink.href =
-      "https://wa.me/79280141434?text=" + encodeURIComponent(lines.join("\n"));
+      "https://wa.me/?text=" + encodeURIComponent(lines.join("\n"));
   }
 
   function onHasDownChange() {
