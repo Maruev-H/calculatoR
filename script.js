@@ -295,7 +295,7 @@
 
     lines.push(
       "Ежемесячный платёж: " + formatMoney(data.monthly),
-      "Итого к оплате: " + formatMoney(data.totalPay)
+      "Итоговая стоимость: " + formatMoney(data.totalPay)
     );
 
     waLink.href =
