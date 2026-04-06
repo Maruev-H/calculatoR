@@ -294,8 +294,8 @@
     }
 
     lines.push(
-      "Итого к оплате: " + formatMoney(data.totalPay),
-      "Ежемесячный платёж: " + formatMoney(data.monthly)
+      "Ежемесячный платёж: " + formatMoney(data.monthly),
+      "Итого к оплате: " + formatMoney(data.totalPay)
     );
 
     waLink.href =
