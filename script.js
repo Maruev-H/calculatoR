@@ -259,7 +259,7 @@
       "Здравствуйте, хочу оформить у вас рассрочку";
     if (!data) {
       waLink.href =
-        "https://wa.me/79280141434?text=" +
+        "https://wa.me/79288884993?text=" +
         encodeURIComponent(intro + "\n\n(заполните форму для расчёта)");
       return;
     }
