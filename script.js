@@ -237,9 +237,7 @@
 
     var monthly =
       months > 0
-        ? specialDownBoost
-          ? roundTo50((totalPay - down) / months)
-          : roundTo50(financed / months)
+        ? roundTo50((totalPay - down) / months)
         : 0;
 
     var downPctOfTotal = totalPay > 0 ? (down / totalPay) * 100 : 0;
