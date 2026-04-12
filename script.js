@@ -1,21 +1,15 @@
 (function () {
   "use strict";
 
-  var RATES_WITH = {
-    3: 11, 4: 14, 5: 18, 6: 21, 7: 25, 8: 28, 9: 32, 10: 35, 11: 39, 12: 42
-  };
-
-  var RATES_WITHOUT = {
+  /** Процент наценки от суммы (цена − первый взнос) по сроку, мес. */
+  var RATES = {
     3: 16, 4: 19, 5: 23, 6: 26, 7: 30, 8: 34, 9: 38, 10: 42, 11: 46, 12: 49
   };
 
-  var form = document.getElementById("calc-form");
   var priceEl = document.getElementById("price");
   var downEl = document.getElementById("down");
   var monthsEl = document.getElementById("months");
-  var downBlock = document.getElementById("down-block");
   var downHint = document.getElementById("down-hint");
-  var rowDown = document.getElementById("row-down");
   var outDown = document.getElementById("out-down");
   var outMarkup = document.getElementById("out-markup");
   var outTotal = document.getElementById("out-total");
@@ -30,13 +24,6 @@
     }).format(Math.round(n));
   }
 
-  function formatPct(p) {
-    return new Intl.NumberFormat("ru-RU", {
-      maximumFractionDigits: 1,
-      minimumFractionDigits: 0
-    }).format(p) + " %";
-  }
-
   /** Округление до 50 ₽: остаток > 25 — вверх, иначе вниз. */
   function roundTo50(n) {
     if (!isFinite(n)) return n;
@@ -49,13 +36,14 @@
   }
 
   /**
-   * Итог кратен (месяцы + (есть первый взнос ? 1 : 0)) * 50 ₽;
+   * Итог кратен (месяцы + (есть первый взнос > 0 ? 1 : 0)) * 50 ₽;
    * (итог − взнос) кратен месяцы * 50 ₽ — ежемесячный платёж целый и кратен 50 ₽.
-   * Итог не ниже price, чтобы наценка в таблице не уходила в минус.
+   * Итог не ниже price.
    */
-  function roundTotalPayForSchedule(rawTotal, price, months, hasDown, down) {
+  function roundTotalPayForSchedule(rawTotal, price, months, down) {
     if (!isFinite(rawTotal) || months <= 0) return rawTotal;
-    var stepGrid = (months + (hasDown ? 1 : 0)) * 50;
+    var hasFirst = down > 0;
+    var stepGrid = (months + (hasFirst ? 1 : 0)) * 50;
     var modM = months * 50;
     var d = Math.round(down);
     var minTotal = isFinite(price) ? price : 0;
@@ -86,9 +74,8 @@
     return best !== null ? best : Math.max(minTotal, rawTotal);
   }
 
-  function getHasDown() {
-    var r = form.querySelector('input[name="hasDown"]:checked');
-    return r && r.value === "yes";
+  function getRateForMonths(m) {
+    return RATES[m] != null ? RATES[m] : 0;
   }
 
   function getPrice() {
@@ -100,22 +87,6 @@
     return parseInt(monthsEl.value, 10) || 3;
   }
 
-  function getRateWithForMonths(m) {
-    return RATES_WITH[m] != null ? RATES_WITH[m] : 0;
-  }
-
-  function getRateWithoutForMonths(m) {
-    return RATES_WITHOUT[m] != null ? RATES_WITHOUT[m] : 0;
-  }
-
-  /** Мин. взнос: 20 % от итога к оплате, округление вверх до кратного 50 ₽. */
-  function getMinDown(price, ratePercent) {
-    var r = ratePercent / 100;
-    var exact = (price * (1 + r)) / (5 + r);
-    return Math.ceil(exact / 50) * 50;
-  }
-
-  /** Макс. взнос кратный 50 ₽, не больше цены товара. */
   function getMaxDown(price) {
     return Math.floor(price / 50) * 50;
   }
@@ -137,25 +108,20 @@
   }
 
   function syncDownFromPrice() {
-    if (!getHasDown()) return;
     var p = getPrice();
     if (!isFinite(p)) return;
-    var min = getMinDown(p, getRateWithForMonths(getMonths()));
     var max50 = getMaxDown(p);
-    downEl.min = "0";
     downEl.max = String(max50);
     var cur = parseFloat(String(downEl.value).replace(",", "."));
     if (!isFinite(cur) || downEl.dataset.userEdited !== "1") {
-      downEl.value = String(min <= max50 ? min : max50);
+      downEl.value = "0";
     } else if (cur > max50) {
       downEl.value = String(max50);
     }
   }
 
   function refreshDownHint() {
-    if (!getHasDown()) return;
     var p = getPrice();
-    var min = isFinite(p) ? getMinDown(p, getRateWithForMonths(getMonths())) : 0;
     var max50 = isFinite(p) ? getMaxDown(p) : 0;
     var cur = parseFloat(String(downEl.value).replace(",", "."));
     if (isFinite(p)) {
@@ -173,15 +139,8 @@
     } else if (isFinite(cur) && !isMultipleOf50Rub(cur)) {
       downHint.textContent = "Взнос должен быть кратен 50 ₽";
       downHint.classList.add("is-error");
-    } else if (isFinite(cur) && cur < min) {
-      downHint.textContent =
-        "Ниже минимума " +
-        formatMoney(min) +
-        " — наценка считается по проценту «без взноса»";
-      downHint.classList.remove("is-error");
     } else {
-      downHint.textContent =
-        "Кратно 50 ₽, не больше цены товара; от минимума — ставка «с взносом»";
+      downHint.textContent = "Кратно 50 ₽, не больше цены товара";
       downHint.classList.remove("is-error");
     }
   }
@@ -201,9 +160,7 @@
   function recalc() {
     var price = getPrice();
     var months = getMonths();
-    var hasDown = getHasDown();
-    var rateWith = getRateWithForMonths(months);
-    var rateWithout = getRateWithoutForMonths(months);
+    var rate = getRateForMonths(months);
 
     if (!isFinite(price)) {
       outDown.textContent = "—";
@@ -214,102 +171,57 @@
       return;
     }
 
-    var down = 0;
-    if (hasDown) {
-      down = parseFloat(String(downEl.value).replace(",", "."));
-      if (!isFinite(down)) down = 0;
-      var minDown = getMinDown(price, rateWith);
-      var maxDown = getMaxDown(price);
-      if (down > price) {
-        outDown.textContent = "—";
-        outMarkup.textContent = "—";
-        outTotal.textContent = "—";
-        outMonthly.textContent = "Взнос не может превышать стоимость";
-        updateWhatsApp(null);
-        return;
-      }
-      if (!isMultipleOf50Rub(down)) {
-        outDown.textContent = "—";
-        outMarkup.textContent = "—";
-        outTotal.textContent = "—";
-        outMonthly.textContent = "Взнос должен быть кратен 50 ₽";
-        updateWhatsApp(null);
-        return;
-      }
-      if (down > maxDown) {
-        outDown.textContent = "—";
-        outMarkup.textContent = "—";
-        outTotal.textContent = "—";
-        outMonthly.textContent = "Макс. взнос — " + formatMoney(maxDown) + " (кратно 50 ₽)";
-        updateWhatsApp(null);
-        return;
-      }
+    var down = parseFloat(String(downEl.value).replace(",", "."));
+    if (!isFinite(down)) down = 0;
+    var maxDown = getMaxDown(price);
+
+    if (down > price) {
+      outDown.textContent = "—";
+      outMarkup.textContent = "—";
+      outTotal.textContent = "—";
+      outMonthly.textContent = "Взнос не может превышать стоимость";
+      updateWhatsApp(null);
+      return;
+    }
+    if (!isMultipleOf50Rub(down)) {
+      outDown.textContent = "—";
+      outMarkup.textContent = "—";
+      outTotal.textContent = "—";
+      outMonthly.textContent = "Взнос должен быть кратен 50 ₽";
+      updateWhatsApp(null);
+      return;
+    }
+    if (down > maxDown) {
+      outDown.textContent = "—";
+      outMarkup.textContent = "—";
+      outTotal.textContent = "—";
+      outMonthly.textContent =
+        "Макс. взнос — " + formatMoney(maxDown) + " (кратно 50 ₽)";
+      updateWhatsApp(null);
+      return;
     }
 
-    var minDownForCalc = hasDown ? getMinDown(price, rateWith) : NaN;
-    var specialDownBoost =
-      hasDown &&
-      isFinite(minDownForCalc) &&
-      down >= minDownForCalc + 5000;
-    var subMinDown =
-      hasDown && isFinite(minDownForCalc) && down < minDownForCalc;
-
-    var markupAmount;
-    var rateForMarkup;
-
-    if (!hasDown) {
-      rateForMarkup = rateWithout;
-      markupAmount = roundTo50(price * (rateWithout / 100));
-    } else if (subMinDown) {
-      rateForMarkup = rateWithout;
-      markupAmount = roundTo50(price * (rateWithout / 100));
-    } else if (specialDownBoost) {
-      rateForMarkup = rateWithout + 1;
-      markupAmount = roundTo50((price - down) * (rateWithout / 100));
-    } else {
-      rateForMarkup = rateWith;
-      markupAmount = roundTo50(price * (rateWith / 100));
-    }
-
+    var principal = price - down;
+    var markupAmount = roundTo50(principal * (rate / 100));
     var rawTotal = price + markupAmount;
-    var totalPay = roundTotalPayForSchedule(
-      rawTotal,
-      price,
-      months,
-      hasDown,
-      down
-    );
+    var totalPay = roundTotalPayForSchedule(rawTotal, price, months, down);
     markupAmount = totalPay - price;
 
     var monthly = months > 0 ? (totalPay - down) / months : 0;
 
-    var downPctOfTotal = totalPay > 0 ? (down / totalPay) * 100 : 0;
-    var markupPctOfPrice = price > 0 ? (markupAmount / price) * 100 : 0;
-
-    if (hasDown) {
-      rowDown.classList.remove("is-hidden");
-      outDown.textContent =
-        formatMoney(down);
-    } else {
-      rowDown.classList.add("is-hidden");
-    }
-
-    outMarkup.textContent =
-      formatMoney(markupAmount);
+    outDown.textContent = formatMoney(down);
+    outMarkup.textContent = formatMoney(markupAmount);
     outTotal.textContent = formatMoney(totalPay);
     outMonthly.textContent = formatMoney(monthly);
 
     updateWhatsApp({
       price: price,
-      hasDown: hasDown,
       down: down,
       months: months,
-      rate: rateForMarkup,
+      rate: rate,
       markupAmount: markupAmount,
       totalPay: totalPay,
-      monthly: monthly,
-      downPctOfTotal: downPctOfTotal,
-      markupPctOfPrice: markupPctOfPrice
+      monthly: monthly
     });
   }
 
@@ -317,52 +229,25 @@
     if (!data) {
       waLink.href =
         "https://wa.me/?text=" +
-        encodeURIComponent(intro + "\n\n(заполните форму для расчёта)");
+        encodeURIComponent(
+          "Finance — рассрочка\n\n(заполните форму для расчёта)"
+        );
       return;
     }
 
     var lines = [
       "Стоимость товара: " + formatMoney(data.price),
-      "Взнос: " + (data.hasDown ? "да" : "нет"),
+      "Первый взнос: " + formatMoney(data.down),
       "Срок: " + data.months + " мес.",
-    ];
-
-    if (data.hasDown) {
-      lines.push(
-        "Первый взнос: " +
-          formatMoney(data.down)
-      );
-    }
-
-    lines.push(
       "Ежемесячный платёж: " + formatMoney(data.monthly),
       "Итоговая стоимость: " + formatMoney(data.totalPay)
-    );
+    ];
 
     waLink.href =
       "https://wa.me/?text=" + encodeURIComponent(lines.join("\n"));
   }
 
-  function onHasDownChange() {
-    var has = getHasDown();
-    if (has) {
-      downBlock.classList.remove("is-hidden");
-      downEl.dataset.userEdited = "";
-      syncDownFromPrice();
-      refreshDownHint();
-    } else {
-      downBlock.classList.add("is-hidden");
-      downHint.textContent = "";
-      downHint.classList.remove("is-error");
-    }
-    recalc();
-  }
-
   fillMonths();
-
-  form.querySelectorAll('input[name="hasDown"]').forEach(function (el) {
-    el.addEventListener("change", onHasDownChange);
-  });
 
   priceEl.addEventListener("input", onPriceInput);
   priceEl.addEventListener("change", onPriceInput);
@@ -374,6 +259,7 @@
     recalc();
   });
 
-  onHasDownChange();
+  syncDownFromPrice();
+  refreshDownHint();
   recalc();
 })();
