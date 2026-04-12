@@ -48,6 +48,44 @@
     return sign * low;
   }
 
+  /**
+   * Итог кратен (месяцы + (есть первый взнос ? 1 : 0)) * 50 ₽;
+   * (итог − взнос) кратен месяцы * 50 ₽ — ежемесячный платёж целый и кратен 50 ₽.
+   * Итог не ниже price, чтобы наценка в таблице не уходила в минус.
+   */
+  function roundTotalPayForSchedule(rawTotal, price, months, hasDown, down) {
+    if (!isFinite(rawTotal) || months <= 0) return rawTotal;
+    var stepGrid = (months + (hasDown ? 1 : 0)) * 50;
+    var modM = months * 50;
+    var d = Math.round(down);
+    var minTotal = isFinite(price) ? price : 0;
+    var base = Math.round(rawTotal / stepGrid) * stepGrid;
+    var best = null;
+    var bestAbs = Infinity;
+    var k;
+    for (k = -200; k <= 200; k++) {
+      var t = base + k * stepGrid;
+      if (t < minTotal) continue;
+      if ((t - d) % modM !== 0) continue;
+      var dist = Math.abs(t - rawTotal);
+      if (dist < bestAbs - 1e-9) {
+        bestAbs = dist;
+        best = t;
+      }
+    }
+    if (best === null) {
+      var tScan = Math.max(minTotal, Math.ceil(rawTotal / stepGrid) * stepGrid);
+      for (k = 0; k < 400; k++) {
+        var t2 = tScan + k * stepGrid;
+        if ((t2 - d) % modM === 0) {
+          best = t2;
+          break;
+        }
+      }
+    }
+    return best !== null ? best : Math.max(minTotal, rawTotal);
+  }
+
   function getHasDown() {
     var r = form.querySelector('input[name="hasDown"]:checked');
     return r && r.value === "yes";
@@ -62,10 +100,12 @@
     return parseInt(monthsEl.value, 10) || 3;
   }
 
-  function getRatePercent() {
-    var m = getMonths();
-    var table = getHasDown() ? RATES_WITH : RATES_WITHOUT;
-    return table[m] != null ? table[m] : 0;
+  function getRateWithForMonths(m) {
+    return RATES_WITH[m] != null ? RATES_WITH[m] : 0;
+  }
+
+  function getRateWithoutForMonths(m) {
+    return RATES_WITHOUT[m] != null ? RATES_WITHOUT[m] : 0;
   }
 
   /** Мин. взнос: 20 % от итога к оплате, округление вверх до кратного 50 ₽. */
@@ -100,28 +140,26 @@
     if (!getHasDown()) return;
     var p = getPrice();
     if (!isFinite(p)) return;
-    var min = getMinDown(p, getRatePercent());
+    var min = getMinDown(p, getRateWithForMonths(getMonths()));
     var max50 = getMaxDown(p);
-    downEl.min = String(min);
+    downEl.min = "0";
     downEl.max = String(max50);
     var cur = parseFloat(String(downEl.value).replace(",", "."));
     if (!isFinite(cur) || downEl.dataset.userEdited !== "1") {
       downEl.value = String(min <= max50 ? min : max50);
     } else if (cur > max50) {
       downEl.value = String(max50);
-    } else if (cur < min) {
-      downEl.value = String(min);
     }
   }
 
   function refreshDownHint() {
     if (!getHasDown()) return;
     var p = getPrice();
-    var min = isFinite(p) ? getMinDown(p, getRatePercent()) : 0;
+    var min = isFinite(p) ? getMinDown(p, getRateWithForMonths(getMonths())) : 0;
     var max50 = isFinite(p) ? getMaxDown(p) : 0;
     var cur = parseFloat(String(downEl.value).replace(",", "."));
     if (isFinite(p)) {
-      downEl.min = String(min);
+      downEl.min = "0";
       downEl.max = String(max50);
     }
     if (!isFinite(p)) {
@@ -137,11 +175,13 @@
       downHint.classList.add("is-error");
     } else if (isFinite(cur) && cur < min) {
       downHint.textContent =
-        "Минимум " + formatMoney(min) + " (20 % от итога с наценкой за срок)";
-      downHint.classList.add("is-error");
+        "Ниже минимума " +
+        formatMoney(min) +
+        " — наценка считается по проценту «без взноса»";
+      downHint.classList.remove("is-error");
     } else {
       downHint.textContent =
-        "Кратно 50 ₽, не менее 20 % от итога с наценкой, не больше цены товара";
+        "Кратно 50 ₽, не больше цены товара; от минимума — ставка «с взносом»";
       downHint.classList.remove("is-error");
     }
   }
@@ -162,7 +202,8 @@
     var price = getPrice();
     var months = getMonths();
     var hasDown = getHasDown();
-    var rate = getRatePercent();
+    var rateWith = getRateWithForMonths(months);
+    var rateWithout = getRateWithoutForMonths(months);
 
     if (!isFinite(price)) {
       outDown.textContent = "—";
@@ -177,7 +218,7 @@
     if (hasDown) {
       down = parseFloat(String(downEl.value).replace(",", "."));
       if (!isFinite(down)) down = 0;
-      var minDown = getMinDown(price, rate);
+      var minDown = getMinDown(price, rateWith);
       var maxDown = getMaxDown(price);
       if (down > price) {
         outDown.textContent = "—";
@@ -203,42 +244,44 @@
         updateWhatsApp(null);
         return;
       }
-      if (down < minDown) {
-        outDown.textContent = "—";
-        outMarkup.textContent = "—";
-        outTotal.textContent = "—";
-        outMonthly.textContent = "Укажите взнос не ниже минимума";
-        updateWhatsApp(null);
-        return;
-      }
     }
 
-    var base = price;
-    var markupRaw = base * (rate / 100);
-    var markupAmount = roundTo50(markupRaw);
-    var financed = base + markupAmount;
-    var totalPay = roundTo50(financed);
-    var minDownForCalc = hasDown ? getMinDown(price, rate) : NaN;
+    var minDownForCalc = hasDown ? getMinDown(price, rateWith) : NaN;
     var specialDownBoost =
       hasDown &&
       isFinite(minDownForCalc) &&
       down >= minDownForCalc + 5000;
+    var subMinDown =
+      hasDown && isFinite(minDownForCalc) && down < minDownForCalc;
 
-    /** Взнос ≥ мин + 5000 ₽: наценка и % как по таблице без взноса (RATES_WITHOUT). */
-    var rateForMarkup = rate;
-    if (specialDownBoost) {
-      var rateWithout = RATES_WITHOUT[months];
-      if (rateWithout == null) rateWithout = 0;
+    var markupAmount;
+    var rateForMarkup;
+
+    if (!hasDown) {
+      rateForMarkup = rateWithout;
+      markupAmount = roundTo50(price * (rateWithout / 100));
+    } else if (subMinDown) {
+      rateForMarkup = rateWithout;
+      markupAmount = roundTo50(price * (rateWithout / 100));
+    } else if (specialDownBoost) {
       rateForMarkup = rateWithout + 1;
       markupAmount = roundTo50((price - down) * (rateWithout / 100));
-      totalPay = roundTo50(price + markupAmount);
-      financed = price + markupAmount;
+    } else {
+      rateForMarkup = rateWith;
+      markupAmount = roundTo50(price * (rateWith / 100));
     }
 
-    var monthly =
-      months > 0
-        ? roundTo50((totalPay - down) / months)
-        : 0;
+    var rawTotal = price + markupAmount;
+    var totalPay = roundTotalPayForSchedule(
+      rawTotal,
+      price,
+      months,
+      hasDown,
+      down
+    );
+    markupAmount = totalPay - price;
+
+    var monthly = months > 0 ? (totalPay - down) / months : 0;
 
     var downPctOfTotal = totalPay > 0 ? (down / totalPay) * 100 : 0;
     var markupPctOfPrice = price > 0 ? (markupAmount / price) * 100 : 0;
