@@ -20,6 +20,24 @@
       <main class="main">
         <form class="card form" id="calc-form" novalidate>
           <div class="field">
+            <span class="label">Первый взнос</span>
+            <div
+              class="toggle"
+              role="group"
+              aria-label="Первый взнос"
+            >
+              <label class="toggle__opt">
+                <input type="radio" name="hasDown" value="no" checked />
+                <span>Без взноса</span>
+              </label>
+              <label class="toggle__opt">
+                <input type="radio" name="hasDown" value="yes" />
+                <span>Со взносом</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="field">
             <label class="label" for="price">Стоимость товара, ₽</label>
             <input
               class="input"
@@ -34,7 +52,7 @@
             />
           </div>
 
-          <div class="field field--down" id="down-block">
+          <div class="field field--down is-hidden" id="down-block">
             <label class="label" for="down">Первый взнос, ₽</label>
             <input
               class="input"
