@@ -2,7 +2,10 @@
   "use strict";
 
   /** Процент наценки от суммы (цена − первый взнос) по сроку, мес. */
-  var RATES = {
+  var RATES_WITH = {
+    3: 11, 4: 14, 5: 18, 6: 21, 7: 25, 8: 28, 9: 32, 10: 35, 11: 39, 12: 42
+  };
+  var RATES_WITHOUT = {
     3: 16, 4: 19, 5: 23, 6: 26, 7: 30, 8: 34, 9: 38, 10: 42, 11: 46, 12: 49
   };
 
@@ -82,8 +85,33 @@
     return r && r.value === "yes";
   }
 
-  function getRateForMonths(m) {
-    return RATES[m] != null ? RATES[m] : 0;
+  function getRateWithoutDownForMonths(m) {
+    return RATES_WITHOUT[m] != null ? RATES_WITHOUT[m] : 0;
+  }
+
+  function getRateWithDownForMonths(m) {
+    return RATES_WITH[m] != null ? RATES_WITH[m] : 0;
+  }
+
+  function getRateForDown(months, down, recommendedDown) {
+    var withRate = getRateWithDownForMonths(months);
+    var withoutRate = getRateWithoutDownForMonths(months);
+
+    if (!isFinite(recommendedDown) || recommendedDown <= 0) return withRate;
+
+    if (down >= recommendedDown && down <= recommendedDown + 5000) {
+      return withRate;
+    }
+
+    if (down < recommendedDown) {
+      var paidSharePct = (down / recommendedDown) * 100;
+      paidSharePct = Math.min(100, Math.max(0, paidSharePct));
+      var missingSharePct = 100 - paidSharePct;
+      var rateGap = withoutRate - withRate;
+      return withRate + rateGap * (missingSharePct / 100);
+    }
+
+    return withoutRate;
   }
 
   function getPrice() {
@@ -105,7 +133,7 @@
    */
   function getRecommendedDown(price) {
     if (!isFinite(price)) return 0;
-    var r = getRateForMonths(getMonths()) / 100;
+    var r = getRateWithDownForMonths(getMonths()) / 100;
     var exact = (price * (1 + r)) / (5 + r);
     var x = Math.ceil(exact / 50) * 50;
     var max50 = getMaxDown(price);
@@ -220,7 +248,6 @@
   function recalc() {
     var price = getPrice();
     var months = getMonths();
-    var rate = getRateForMonths(months);
     var hasDown = getHasDown();
 
     if (!isFinite(price)) {
@@ -233,6 +260,7 @@
     }
 
     var down = 0;
+    var recommendedDown = getRecommendedDown(price);
     if (hasDown) {
       down = parseFloat(String(downEl.value).replace(",", "."));
       if (!isFinite(down)) down = 0;
@@ -265,7 +293,13 @@
       }
     }
 
-    var principal = price - down;
+    var rate = hasDown
+      ? getRateForDown(months, down, recommendedDown)
+      : getRateWithoutDownForMonths(months);
+
+    var useFullPriceForMarkup =
+      hasDown && down > 0 && down < recommendedDown + 5000;
+    var principal = useFullPriceForMarkup ? price : price - down;
     var markupAmount = roundTo50(principal * (rate / 100));
     var rawTotal = price + markupAmount;
     var totalPay = roundTotalPayForSchedule(rawTotal, price, months, down);
